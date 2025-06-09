@@ -163,7 +163,14 @@ if (isToolEnabled('message_complete_notification')) {
       // Use inferred args type
       const { projectName, message } = args;
       notifier.notify({ title: projectName, message });
-      return { content: [{ type: 'text', text: 'Notification sent.' }] };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Notification sent. You can now wait for user input.',
+          },
+        ],
+      };
     },
   );
 }
