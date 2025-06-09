@@ -17,6 +17,7 @@ interface SessionInfo {
   lastHeartbeatTime: number;
   isActive: boolean;
   title: string;
+  timeoutSeconds?: number;
 }
 
 // Global object to keep track of active intensive chat sessions
@@ -133,6 +134,7 @@ export async function startIntensiveChatSession(
     lastHeartbeatTime: Date.now(),
     isActive: true,
     title,
+    timeoutSeconds,
   };
 
   // Wait a bit to ensure the UI has started
@@ -183,7 +185,7 @@ export async function askQuestionInSession(
   );
 
   // Wait for response with timeout
-  const maxWaitTime = 60000; // 60 seconds max wait time
+  const maxWaitTime = (session.timeoutSeconds ?? 60) * 1000; // Use session timeout or default to 60s
   const pollInterval = 100; // 100ms polling interval
   const startTime = Date.now();
 
