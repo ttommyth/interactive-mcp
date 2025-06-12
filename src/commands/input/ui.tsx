@@ -39,7 +39,7 @@ const readOptionsFromFile = async (): Promise<CmdOptions> => {
 
   let tempDir = args[1];
   if (!tempDir) {
-      tempDir = os.tmpdir();
+    tempDir = os.tmpdir();
   }
 
   const optionsFilePath = path.join(
