@@ -94,7 +94,7 @@ export async function getCmdWindowInput(
 
           // Construct the command string directly for the shell. Quotes handle paths with spaces.
           // Pass only the sessionId
-          const nodeCommand = `exec node "${escapedScriptPath}" "${escapedSessionId}"; exit 0`;
+          const nodeCommand = `exec node "${escapedScriptPath}" "${escapedSessionId}" "${tempDir}"; exit 0`;
 
           // Escape the node command for osascript's AppleScript string:
           const escapedNodeCommand = nodeCommand

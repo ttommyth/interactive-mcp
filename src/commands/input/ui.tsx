@@ -37,7 +37,11 @@ const readOptionsFromFile = async (): Promise<CmdOptions> => {
     throw new Error('No sessionId provided'); // Throw error to prevent proceeding
   }
 
-  const tempDir = os.tmpdir();
+  let tempDir = args[1];
+  if (!tempDir) {
+      tempDir = os.tmpdir();
+  }
+
   const optionsFilePath = path.join(
     tempDir,
     `cmd-ui-options-${sessionId}.json`,
