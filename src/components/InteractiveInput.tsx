@@ -1,7 +1,6 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { TextInput } from '@inkjs/ui';
-import logger from '@/utils/logger.js';
 
 interface InteractiveInputProps {
   question: string;
