@@ -209,7 +209,7 @@ const App: FC<AppProps> = ({ sessionId, title, outputDir, timeoutSeconds }) => {
           await fs.stat(closeFilePath);
           // If close file exists, exit the process
           handleExit();
-        } catch (_e) {
+        } catch {
           // No close request
         }
       } catch (error) {

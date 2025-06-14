@@ -6,7 +6,7 @@
 
 ![Screenshot 2025-05-13 213745](https://github.com/user-attachments/assets/40208534-5910-4eb2-bfbc-58f7d93aec95)
 
-A MCP Server implemented in Node.js/TypeScript, facilitating interactive communication between LLMs and users. **Note:** This server is designed to run locally alongside the MCP client (e.g., Claude Desktop, VS Code), as it needs direct access to the user's operating system to display notifications and command-line prompts.
+A MCP Server implemented in Node.js/TypeScript, facilitating interactive communication between LLMs and users through **terminal windows** or **Telegram bot messages**. **Note:** This server is designed to run locally alongside the MCP client (e.g., Claude Desktop, VS Code), as it needs direct access to the user's operating system to display notifications and command-line prompts, or requires a Telegram bot token for bot-based interaction.
 
 _(Note: This project is in its early stages.)_
 
@@ -157,10 +157,12 @@ pnpm start
 
 The `interactive-mcp` server accepts the following command-line options. These should typically be configured in your MCP client's JSON settings by adding them directly to the `args` array (see "Client Configuration" examples).
 
-| Option            | Alias | Description                                                                                                                                                                                           |
-| ----------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--timeout`       | `-t`  | Sets the default timeout (in seconds) for user input prompts. Defaults to 30 seconds.                                                                                                                 |
-| `--disable-tools` | `-d`  | Disables specific tools or groups (comma-separated list). Prevents the server from advertising or registering them. Options: `request_user_input`, `message_complete_notification`, `intensive_chat`. |
+| Option                | Alias | Description                                                                                                                                                                                           |
+| --------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--timeout`           | `-t`  | Sets the default timeout (in seconds) for user input prompts. Defaults to 30 seconds.                                                                                                                 |
+| `--disable-tools`     | `-d`  | Disables specific tools or groups (comma-separated list). Prevents the server from advertising or registering them. Options: `request_user_input`, `message_complete_notification`, `intensive_chat`. |
+| `--use-telegram`      |       | Use Telegram bot for interaction instead of terminal windows. Requires `TELEGRAM_BOT_TOKEN` environment variable.                                                                                     |
+| `--telegram-chat-ids` |       | Comma-separated list of allowed Telegram chat IDs (required when using `--use-telegram`). Only these users can interact with the bot.                                                                 |
 
 **Example:** Setting multiple options in the client config `args` array:
 
@@ -172,6 +174,41 @@ The `interactive-mcp` server accepts the following command-line options. These s
   "--disable-tools", "message_complete_notification,intensive_chat" // Disable notifications and intensive chat
 ]
 ```
+
+**Example:** Using Telegram mode:
+
+```jsonc
+// Example with Telegram bot interaction:
+"args": [
+  "-y", "interactive-mcp",
+  "--use-telegram",
+  "--telegram-chat-ids", "123456789,987654321" // Your Telegram chat IDs
+],
+"env": {
+  "TELEGRAM_BOT_TOKEN": "123456789:ABCdefGhiJklmnopQRSTUVwxyz" // Your bot token
+}
+```
+
+## Telegram Bot Mode
+
+The server now supports Telegram bot interaction as an alternative to terminal windows. This is particularly useful for remote setups or when you prefer receiving notifications and prompts through Telegram.
+
+📋 **[See detailed Telegram setup instructions](./TELEGRAM_SETUP.md)**
+
+### Quick Start with Telegram
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) and get your bot token
+2. Get your chat ID from [@userinfobot](https://t.me/userinfobot)
+3. Set the `TELEGRAM_BOT_TOKEN` environment variable
+4. Add `--use-telegram --telegram-chat-ids YOUR_CHAT_ID` to your MCP client config
+
+### Telegram Features
+
+- **Interactive Questions**: Questions appear as Telegram messages
+- **Quick Reply Buttons**: Predefined options become clickable inline buttons
+- **Notifications**: Desktop notifications become Telegram messages with 🔔 emoji
+- **Security**: Only whitelisted chat IDs can interact with your bot
+- **Multi-User**: Support multiple authorized users via comma-separated chat IDs
 
 ## Development Commands
 

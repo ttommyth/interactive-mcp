@@ -1,4 +1,4 @@
-import { z, ZodRawShape } from 'zod';
+import { ZodRawShape } from 'zod';
 
 // Type for the 'capability' part as used in McpServer capabilities
 export interface ToolCapabilityInfo {

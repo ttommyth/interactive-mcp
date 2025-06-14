@@ -39,7 +39,7 @@ const readOptionsFromFile = async (): Promise<CmdOptions> => {
 
   let tempDir = args[1];
   if (!tempDir) {
-      tempDir = os.tmpdir();
+    tempDir = os.tmpdir();
   }
 
   const optionsFilePath = path.join(
@@ -175,7 +175,7 @@ const App: FC<AppProps> = ({ options: appOptions }) => {
           ) {
             try {
               await fs.writeFile(heartbeatFile, '', 'utf8');
-            } catch (createErr) {
+            } catch {
               // Ignore errors creating heartbeat file (e.g., permissions)
             }
           } else {

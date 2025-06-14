@@ -1,11 +1,19 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
 import notifier from 'node-notifier';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { getCmdWindowInput } from './commands/input/index.js';
+import {
+  getTelegramInput,
+  sendTelegramNotification,
+  cleanupTelegram,
+  startTelegramIntensiveChat,
+  askTelegramIntensiveChat,
+  stopTelegramIntensiveChat,
+} from './commands/telegram/index.js';
 import {
   startIntensiveChatSession,
   askQuestionInSession,
@@ -49,6 +57,23 @@ const argv = yargs(hideBin(process.argv))
       'Comma-separated list of tool names to disable. Available options: request_user_input, message_complete_notification, intensive_chat (disables all intensive chat tools).',
     default: '',
   })
+  .option('use-telegram', {
+    type: 'boolean',
+    description:
+      'Use Telegram bot for user interaction instead of terminal windows',
+    default: false,
+  })
+  .option('telegram-chat-ids', {
+    type: 'string',
+    description:
+      'Comma-separated list of allowed Telegram chat IDs (required when using --use-telegram)',
+    default: '',
+  })
+  .option('telegram-timeout', {
+    type: 'number',
+    description:
+      'Timeout for Telegram mode (in seconds). If not specified, uses --timeout value',
+  })
   .help()
   .alias('help', 'h')
   .parseSync();
@@ -58,6 +83,29 @@ const disabledTools = argv['disable-tools']
   .split(',')
   .map((tool) => tool.trim())
   .filter(Boolean);
+const useTelegram = argv['use-telegram'];
+const telegramTimeoutSeconds = argv['telegram-timeout'] || globalTimeoutSeconds;
+const telegramChatIds = argv['telegram-chat-ids']
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean)
+  .map((id) => parseInt(id, 10))
+  .filter((id) => !isNaN(id));
+
+// Validate Telegram configuration
+if (useTelegram && telegramChatIds.length === 0) {
+  console.error(
+    'Error: --telegram-chat-ids is required when using --use-telegram',
+  );
+  process.exit(1);
+}
+
+if (useTelegram && !process.env.TELEGRAM_BOT_TOKEN) {
+  console.error(
+    'Error: TELEGRAM_BOT_TOKEN environment variable is required when using --use-telegram',
+  );
+  process.exit(1);
+}
 
 // Store active intensive chat sessions
 const activeChatSessions = new Map<string, string>();
@@ -120,14 +168,29 @@ if (isToolEnabled('request_user_input')) {
     async (args) => {
       // Use inferred args type
       const { projectName, message, predefinedOptions } = args;
-      const promptMessage = `${projectName}: ${message}`;
-      const answer = await getCmdWindowInput(
-        projectName,
-        promptMessage,
-        globalTimeoutSeconds,
-        true,
-        predefinedOptions,
-      );
+
+      let answer: string;
+
+      if (useTelegram) {
+        // Use Telegram bot for input
+        answer = await getTelegramInput(
+          projectName,
+          message,
+          telegramTimeoutSeconds,
+          telegramChatIds,
+          predefinedOptions,
+        );
+      } else {
+        // Use terminal window for input
+        const promptMessage = `${projectName}: ${message}`;
+        answer = await getCmdWindowInput(
+          projectName,
+          promptMessage,
+          globalTimeoutSeconds,
+          true,
+          predefinedOptions,
+        );
+      }
 
       // Check for the specific timeout indicator
       if (answer === '__TIMEOUT__') {
@@ -159,10 +222,18 @@ if (isToolEnabled('message_complete_notification')) {
       ? messageCompleteNotificationTool.description(globalTimeoutSeconds) // Should not happen based on definition, but safe
       : messageCompleteNotificationTool.description,
     messageCompleteNotificationTool.schema, // Use schema property
-    (args) => {
+    async (args) => {
       // Use inferred args type
       const { projectName, message } = args;
-      notifier.notify({ title: projectName, message });
+
+      if (useTelegram) {
+        // Send Telegram notification
+        await sendTelegramNotification(projectName, message, telegramChatIds);
+      } else {
+        // Send desktop notification
+        notifier.notify({ title: projectName, message });
+      }
+
       return {
         content: [
           {
@@ -190,11 +261,28 @@ if (isToolEnabled('start_intensive_chat')) {
       // Use inferred args type
       const { sessionTitle } = args;
       try {
-        // Start a new intensive chat session, passing global timeout
-        const sessionId = await startIntensiveChatSession(
-          sessionTitle,
-          globalTimeoutSeconds,
-        );
+        let sessionId: string;
+
+        if (useTelegram) {
+          // Use Telegram for intensive chat
+          sessionId = `telegram-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const success = await startTelegramIntensiveChat(
+            sessionId,
+            'Interactive MCP',
+            sessionTitle,
+            telegramChatIds,
+          );
+
+          if (!success) {
+            throw new Error('Failed to start Telegram intensive chat session');
+          }
+        } else {
+          // Use terminal for intensive chat
+          sessionId = await startIntensiveChatSession(
+            sessionTitle,
+            globalTimeoutSeconds,
+          );
+        }
 
         // Track this session for the client
         activeChatSessions.set(sessionId, sessionTitle);
@@ -249,12 +337,36 @@ if (isToolEnabled('ask_intensive_chat')) {
       }
 
       try {
-        // Ask the question in the session
-        const answer = await askQuestionInSession(
-          sessionId,
-          question,
-          predefinedOptions,
-        );
+        let answer: string | null;
+
+        if (useTelegram && sessionId.startsWith('telegram-')) {
+          // Use Telegram for intensive chat
+          answer = await askTelegramIntensiveChat(
+            sessionId,
+            question,
+            predefinedOptions,
+            telegramTimeoutSeconds,
+          );
+        } else {
+          // Use terminal for intensive chat
+          answer = await askQuestionInSession(
+            sessionId,
+            question,
+            predefinedOptions,
+          );
+        }
+
+        // Handle null response (session not found)
+        if (answer === null) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Session not found or inactive.',
+              },
+            ],
+          };
+        }
 
         // Check for the specific timeout indicator
         if (answer === '__TIMEOUT__') {
@@ -324,8 +436,16 @@ if (isToolEnabled('stop_intensive_chat')) {
       }
 
       try {
-        // Stop the session
-        const success = await stopIntensiveChatSession(sessionId);
+        let success: boolean;
+
+        if (useTelegram && sessionId.startsWith('telegram-')) {
+          // Use Telegram for intensive chat
+          success = await stopTelegramIntensiveChat(sessionId);
+        } else {
+          // Use terminal for intensive chat
+          success = await stopIntensiveChatSession(sessionId);
+        }
+
         // Remove session from map if successful
         if (success) {
           activeChatSessions.delete(sessionId);
@@ -347,6 +467,19 @@ if (isToolEnabled('stop_intensive_chat')) {
   );
 }
 // --- End Intensive Chat Tool Registrations ---
+
+// Add cleanup handler for Telegram bot
+if (useTelegram) {
+  process.on('SIGINT', () => {
+    cleanupTelegram();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    cleanupTelegram();
+    process.exit(0);
+  });
+}
 
 // Run the server over stdio
 const transport = new StdioServerTransport();
