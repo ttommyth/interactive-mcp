@@ -34,28 +34,20 @@ interface IntensiveChatSession {
 }
 
 class TelegramInteraction {
-  private bot: TelegramBot | null = null;
-  private allowedChatIds: Set<number> = new Set();
+  private bot: TelegramBot;
+  private allowedChatIds: Set<number>;
   private pendingQuestions: Map<string, PendingQuestion> = new Map();
   private intensiveChatSessions: Map<string, IntensiveChatSession> = new Map();
-  private initialized = false;
+  private messageHandlerSet = false;
 
-  constructor() {
-    // Initialize will be called when first needed
+  constructor(bot: TelegramBot, allowedChatIds: number[]) {
+    this.bot = bot;
+    this.allowedChatIds = new Set(allowedChatIds);
+    this.setupMessageHandlers();
   }
 
-  private initialize(allowedChatIds: number[]): void {
-    if (this.initialized) return;
-
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) {
-      throw new Error(
-        'TELEGRAM_BOT_TOKEN environment variable is required for Telegram mode',
-      );
-    }
-
-    this.bot = new TelegramBot(token, { polling: true });
-    this.allowedChatIds = new Set(allowedChatIds);
+  private setupMessageHandlers(): void {
+    if (this.messageHandlerSet) return;
 
     // Set up message handler
     this.bot.on('message', (msg) => {
@@ -67,8 +59,10 @@ class TelegramInteraction {
       this.handleCallbackQuery(query);
     });
 
-    this.initialized = true;
-    logger.info('Telegram bot initialized', { allowedChatIds });
+    this.messageHandlerSet = true;
+    logger.info('Telegram message handlers set up', {
+      allowedChatIds: Array.from(this.allowedChatIds),
+    });
   }
 
   private isAllowedChat(chatId: number): boolean {
@@ -124,8 +118,11 @@ class TelegramInteraction {
     }
 
     // Find if this is a response to a pending question
+    // Fix: Add proper session validation and prevent multiple resolutions
+    let resolvedSessionId: string | null = null;
+
     for (const [sessionId, pending] of this.pendingQuestions.entries()) {
-      if (pending.chatId === msg.chat.id) {
+      if (pending.chatId === msg.chat.id && !resolvedSessionId) {
         let response: string;
 
         // Handle different message types
@@ -156,10 +153,20 @@ class TelegramInteraction {
           return;
         }
 
+        // Mark this session as resolved to prevent multiple resolutions
+        resolvedSessionId = sessionId;
+
         // Clear timeout and intervals
         clearTimeout(pending.timeout);
         pending.countdownIntervals.forEach(clearInterval);
         this.pendingQuestions.delete(sessionId);
+
+        logger.info('Telegram message resolved', {
+          sessionId,
+          chatId: msg.chat.id,
+          responseLength: response.length,
+        });
+
         pending.resolve(response);
         return;
       }
@@ -406,28 +413,25 @@ class TelegramInteraction {
     projectName: string,
     promptMessage: string,
     timeoutSeconds: number = USER_INPUT_TIMEOUT_SECONDS,
-    allowedChatIds: number[],
     predefinedOptions?: string[],
   ): Promise<string> {
-    if (!this.initialized) {
-      this.initialize(allowedChatIds);
-    }
-
-    if (!this.bot) {
-      throw new Error('Telegram bot not initialized');
-    }
-
-    if (allowedChatIds.length === 0) {
-      throw new Error('No allowed chat IDs specified for Telegram mode');
-    }
-
-    const sessionId = randomBytes(8).toString('hex');
+    // Generate unique session ID with timestamp to prevent collisions
+    const sessionId = `${randomBytes(8).toString('hex')}_${Date.now()}`;
     // Use improved HTML formatting
     const fullMessage = this.formatMessage(projectName, promptMessage);
 
     return new Promise<string>((resolve) => {
+      let isResolved = false; // Flag to prevent multiple resolutions
+
+      const safeResolve = (response: string) => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve(response);
+        }
+      };
+
       const sendToChats = async () => {
-        for (const chatId of allowedChatIds) {
+        for (const chatId of this.allowedChatIds) {
           try {
             let sentMessage: TelegramBot.Message;
 
@@ -458,7 +462,7 @@ class TelegramInteraction {
             // Set up timeout with notification
             const timeout = setTimeout(async () => {
               const pending = this.pendingQuestions.get(sessionId);
-              if (pending) {
+              if (pending && !isResolved) {
                 // Clear intervals
                 pending.countdownIntervals.forEach(clearInterval);
                 this.pendingQuestions.delete(sessionId);
@@ -477,7 +481,7 @@ class TelegramInteraction {
                   });
                 }
 
-                resolve('__TIMEOUT__');
+                safeResolve('__TIMEOUT__');
               }
             }, timeoutSeconds * 1000);
 
@@ -498,7 +502,7 @@ class TelegramInteraction {
 
             // Store pending question with more info
             this.pendingQuestions.set(sessionId, {
-              resolve,
+              resolve: safeResolve, // Use safe resolve function
               messageId: sentMessage.message_id,
               timeout,
               predefinedOptions,
@@ -533,24 +537,12 @@ class TelegramInteraction {
     });
   }
 
-  async sendNotification(
-    projectName: string,
-    message: string,
-    allowedChatIds: number[],
-  ): Promise<void> {
-    if (!this.initialized) {
-      this.initialize(allowedChatIds);
-    }
-
-    if (!this.bot) {
-      throw new Error('Telegram bot not initialized');
-    }
-
+  async sendNotification(projectName: string, message: string): Promise<void> {
     // Use the improved formatting for notifications too
     const formattedMessage = this.formatMessage(projectName, message);
     const fullMessage = `🔔 ${formattedMessage}`;
 
-    for (const chatId of allowedChatIds) {
+    for (const chatId of this.allowedChatIds) {
       try {
         await this.bot.sendMessage(chatId, fullMessage, {
           parse_mode: 'HTML',
@@ -567,17 +559,12 @@ class TelegramInteraction {
     sessionId: string,
     projectName: string,
     title: string,
-    allowedChatIds: number[],
   ): Promise<boolean> {
-    if (!this.initialized) {
-      this.initialize(allowedChatIds);
-    }
-
-    if (!this.bot || allowedChatIds.length === 0) {
+    if (this.allowedChatIds.size === 0) {
       return false;
     }
 
-    const chatId = allowedChatIds[0]; // Use first chat ID for intensive sessions
+    const chatId = Array.from(this.allowedChatIds)[0]; // Use first chat ID for intensive sessions
 
     // Create session
     this.intensiveChatSessions.set(sessionId, {
@@ -667,12 +654,22 @@ class TelegramInteraction {
 
       // Wait for response
       return new Promise<string>((resolve) => {
-        const questionSessionId = randomBytes(8).toString('hex');
+        // Generate unique session ID with timestamp to prevent collisions
+        const questionSessionId = `${randomBytes(8).toString('hex')}_${Date.now()}`;
         const startTime = Date.now();
+        let isResolved = false; // Flag to prevent multiple resolutions
+
+        const safeResolve = (response: string) => {
+          if (!isResolved) {
+            isResolved = true;
+            messageEntry.answer = response;
+            resolve(response);
+          }
+        };
 
         const timeout = setTimeout(async () => {
           const pending = this.pendingQuestions.get(questionSessionId);
-          if (pending) {
+          if (pending && !isResolved) {
             // Clear intervals
             pending.countdownIntervals.forEach(clearInterval);
             this.pendingQuestions.delete(questionSessionId);
@@ -694,7 +691,7 @@ class TelegramInteraction {
               );
             }
 
-            resolve('__TIMEOUT__');
+            safeResolve('__TIMEOUT__');
           }
         }, timeoutSeconds * 1000);
 
@@ -715,10 +712,7 @@ class TelegramInteraction {
 
         // Store pending question
         this.pendingQuestions.set(questionSessionId, {
-          resolve: (response: string) => {
-            messageEntry.answer = response;
-            resolve(response);
-          },
+          resolve: safeResolve, // Use safe resolve function
           messageId: sentMessage.message_id,
           timeout,
           predefinedOptions,
@@ -786,19 +780,28 @@ class TelegramInteraction {
   }
 
   cleanup(): void {
-    if (this.bot) {
-      this.bot.stopPolling();
-      // Clear all pending questions and their intervals
-      for (const pending of this.pendingQuestions.values()) {
-        clearTimeout(pending.timeout);
-        pending.countdownIntervals.forEach(clearInterval);
-        pending.resolve('__TIMEOUT__');
-      }
-      this.pendingQuestions.clear();
+    logger.info('Telegram interaction cleanup started', {
+      pendingQuestionsCount: this.pendingQuestions.size,
+      intensiveChatSessionsCount: this.intensiveChatSessions.size,
+    });
 
-      // Clear intensive chat sessions
-      this.intensiveChatSessions.clear();
+    // Clear all pending questions and their intervals
+    for (const [sessionId, pending] of this.pendingQuestions.entries()) {
+      logger.debug('Cleaning up pending question', { sessionId });
+      clearTimeout(pending.timeout);
+      pending.countdownIntervals.forEach(clearInterval);
+      pending.resolve('__CLEANUP__'); // Resolve with cleanup indicator
     }
+    this.pendingQuestions.clear();
+
+    // Clear intensive chat sessions
+    for (const [sessionId, session] of this.intensiveChatSessions.entries()) {
+      logger.debug('Cleaning up intensive chat session', { sessionId });
+      session.isActive = false;
+    }
+    this.intensiveChatSessions.clear();
+
+    logger.info('Telegram interaction cleanup completed');
   }
 
   // Helper function to download and read file content
@@ -806,10 +809,6 @@ class TelegramInteraction {
     fileId: string,
     filename?: string,
   ): Promise<string> {
-    if (!this.bot) {
-      throw new Error('Bot not initialized');
-    }
-
     try {
       // Get file info from Telegram
       const file = await this.bot.getFile(fileId);
@@ -888,10 +887,6 @@ class TelegramInteraction {
     photoSizes: TelegramBot.PhotoSize[],
     caption?: string,
   ): Promise<string> {
-    if (!this.bot) {
-      throw new Error('Bot not initialized');
-    }
-
     try {
       // Get the largest photo size
       const largestPhoto = photoSizes[photoSizes.length - 1];
@@ -908,11 +903,22 @@ class TelegramInteraction {
   }
 }
 
-// Singleton instance
-const telegramInteraction = new TelegramInteraction();
+/**
+ * Create a new TelegramInteraction instance
+ * @param bot TelegramBot instance (managed externally)
+ * @param allowedChatIds Array of allowed Telegram chat IDs
+ * @returns TelegramInteraction instance
+ */
+export function createTelegramInteraction(
+  bot: TelegramBot,
+  allowedChatIds: number[],
+): TelegramInteraction {
+  return new TelegramInteraction(bot, allowedChatIds);
+}
 
 /**
  * Get user input via Telegram bot
+ * @param bot TelegramBot instance
  * @param projectName Name of the project requesting input (used for title)
  * @param promptMessage Message to display to the user
  * @param timeoutSeconds Timeout in seconds
@@ -921,41 +927,42 @@ const telegramInteraction = new TelegramInteraction();
  * @returns User input or '__TIMEOUT__' if timeout
  */
 export async function getTelegramInput(
+  bot: TelegramBot,
   projectName: string,
   promptMessage: string,
   timeoutSeconds: number = USER_INPUT_TIMEOUT_SECONDS,
   allowedChatIds: number[],
   predefinedOptions?: string[],
 ): Promise<string> {
-  return telegramInteraction.sendInput(
+  const interaction = new TelegramInteraction(bot, allowedChatIds);
+  return interaction.sendInput(
     projectName,
     promptMessage,
     timeoutSeconds,
-    allowedChatIds,
     predefinedOptions,
   );
 }
 
 /**
  * Send notification via Telegram bot
+ * @param bot TelegramBot instance
  * @param projectName Name of the project
  * @param message Notification message
  * @param allowedChatIds Array of allowed Telegram chat IDs
  */
 export async function sendTelegramNotification(
+  bot: TelegramBot,
   projectName: string,
   message: string,
   allowedChatIds: number[],
 ): Promise<void> {
-  return telegramInteraction.sendNotification(
-    projectName,
-    message,
-    allowedChatIds,
-  );
+  const interaction = new TelegramInteraction(bot, allowedChatIds);
+  return interaction.sendNotification(projectName, message);
 }
 
 /**
  * Start an intensive chat session via Telegram
+ * @param bot TelegramBot instance
  * @param sessionId Unique session identifier
  * @param projectName Name of the project
  * @param title Title for the session
@@ -963,21 +970,19 @@ export async function sendTelegramNotification(
  * @returns True if session started successfully
  */
 export async function startTelegramIntensiveChat(
+  bot: TelegramBot,
   sessionId: string,
   projectName: string,
   title: string,
   allowedChatIds: number[],
 ): Promise<boolean> {
-  return telegramInteraction.startIntensiveChat(
-    sessionId,
-    projectName,
-    title,
-    allowedChatIds,
-  );
+  const interaction = new TelegramInteraction(bot, allowedChatIds);
+  return interaction.startIntensiveChat(sessionId, projectName, title);
 }
 
 /**
  * Ask a question in an active Telegram intensive chat session
+ * @param bot TelegramBot instance
  * @param sessionId Session identifier
  * @param question Question to ask
  * @param predefinedOptions Optional predefined options
@@ -985,33 +990,41 @@ export async function startTelegramIntensiveChat(
  * @returns User response or null if session not found
  */
 export async function askTelegramIntensiveChat(
+  bot: TelegramBot,
   sessionId: string,
   question: string,
   predefinedOptions?: string[],
   timeoutSeconds: number = USER_INPUT_TIMEOUT_SECONDS,
 ): Promise<string | null> {
-  return telegramInteraction.askInIntensiveChat(
-    sessionId,
-    question,
-    predefinedOptions,
-    timeoutSeconds,
+  // Note: This requires the bot to have the same session state
+  // For intensive chat, it's better to use the instance-based approach
+  throw new Error(
+    'Use createTelegramInteraction() and call askInIntensiveChat() on the instance for intensive chat sessions',
   );
 }
 
 /**
  * Stop an active Telegram intensive chat session
+ * @param bot TelegramBot instance
  * @param sessionId Session identifier
  * @returns True if session was stopped successfully
  */
 export async function stopTelegramIntensiveChat(
+  bot: TelegramBot,
   sessionId: string,
 ): Promise<boolean> {
-  return telegramInteraction.stopIntensiveChat(sessionId);
+  // Note: This requires the bot to have the same session state
+  // For intensive chat, it's better to use the instance-based approach
+  throw new Error(
+    'Use createTelegramInteraction() and call stopIntensiveChat() on the instance for intensive chat sessions',
+  );
 }
 
 /**
- * Cleanup Telegram bot resources
+ * Cleanup Telegram bot resources (deprecated - manage bot lifecycle externally)
  */
 export function cleanupTelegram(): void {
-  telegramInteraction.cleanup();
+  logger.warn(
+    'cleanupTelegram() is deprecated. Manage bot lifecycle externally.',
+  );
 }

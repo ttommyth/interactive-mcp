@@ -157,12 +157,14 @@ pnpm start
 
 The `interactive-mcp` server accepts the following command-line options. These should typically be configured in your MCP client's JSON settings by adding them directly to the `args` array (see "Client Configuration" examples).
 
-| Option                | Alias | Description                                                                                                                                                                                           |
-| --------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--timeout`           | `-t`  | Sets the default timeout (in seconds) for user input prompts. Defaults to 30 seconds.                                                                                                                 |
-| `--disable-tools`     | `-d`  | Disables specific tools or groups (comma-separated list). Prevents the server from advertising or registering them. Options: `request_user_input`, `message_complete_notification`, `intensive_chat`. |
-| `--use-telegram`      |       | Use Telegram bot for interaction instead of terminal windows. Requires `TELEGRAM_BOT_TOKEN` environment variable.                                                                                     |
-| `--telegram-chat-ids` |       | Comma-separated list of allowed Telegram chat IDs (required when using `--use-telegram`). Only these users can interact with the bot.                                                                 |
+| Option                 | Alias | Description                                                                                                                                                                                           |
+| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--timeout`            | `-t`  | Sets the default timeout (in seconds) for user input prompts. Defaults to 30 seconds.                                                                                                                 |
+| `--disable-tools`      | `-d`  | Disables specific tools or groups (comma-separated list). Prevents the server from advertising or registering them. Options: `request_user_input`, `message_complete_notification`, `intensive_chat`. |
+| `--use-telegram`       |       | Use Telegram bot for interaction instead of terminal windows. Requires bot token via `--telegram-bot-token` or `TELEGRAM_BOT_TOKEN` environment variable.                                             |
+| `--telegram-bot-token` |       | Telegram bot token for authentication. Can also be set via `TELEGRAM_BOT_TOKEN` environment variable. Required when using `--use-telegram`.                                                           |
+| `--telegram-chat-ids`  |       | Comma-separated list of allowed Telegram chat IDs (required when using `--use-telegram`). Only these users can interact with the bot.                                                                 |
+| `--telegram-timeout`   |       | Timeout for Telegram mode (in seconds). If not specified, uses `--timeout` value.                                                                                                                     |
 
 **Example:** Setting multiple options in the client config `args` array:
 
@@ -175,10 +177,22 @@ The `interactive-mcp` server accepts the following command-line options. These s
 ]
 ```
 
-**Example:** Using Telegram mode:
+**Example:** Using Telegram mode with CLI token:
 
 ```jsonc
-// Example with Telegram bot interaction:
+// Example with Telegram bot interaction using CLI parameter:
+"args": [
+  "-y", "interactive-mcp",
+  "--use-telegram",
+  "--telegram-bot-token", "123456789:ABCdefGhiJklmnopQRSTUVwxyz", // Your bot token
+  "--telegram-chat-ids", "123456789,987654321" // Your Telegram chat IDs
+]
+```
+
+**Example:** Using Telegram mode with environment variable:
+
+```jsonc
+// Example with Telegram bot interaction using environment variable:
 "args": [
   "-y", "interactive-mcp",
   "--use-telegram",

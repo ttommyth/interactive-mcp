@@ -137,6 +137,13 @@ export async function getCmdWindowInput(
 
         // Define cleanupAndResolve inside the promise scope
         const cleanupAndResolve = async (response: string) => {
+          logger.info('Terminal input cleanup and resolve', {
+            sessionId,
+            responseLength: response.length,
+            isTimeout: response === '__TIMEOUT__',
+            isEmpty: response === '',
+          });
+
           if (heartbeatInterval) {
             clearInterval(heartbeatInterval);
             heartbeatInterval = null;
@@ -184,10 +191,7 @@ export async function getCmdWindowInput(
         // Create an empty temp file before watching for user response
         await fsPromises.writeFile(tempFilePath, '', 'utf8'); // Use renamed import
 
-        // Wait briefly for the heartbeat file to potentially be created
-        await new Promise((res) => setTimeout(res, 500));
-
-        // Watch for content being written to the temp file
+        // Set up watcher BEFORE any delays to avoid race conditions
         watcher = watch(tempFilePath, (eventType: string) => {
           // Removed async
           if (eventType === 'change') {
@@ -196,10 +200,10 @@ export async function getCmdWindowInput(
             void (async () => {
               try {
                 const data = await fsPromises.readFile(tempFilePath, 'utf8'); // Use renamed import
-                if (data) {
-                  const response = data.trim();
-                  void cleanupAndResolve(response); // Mark promise as intentionally ignored
-                }
+                // Fix: Handle empty input properly - don't check if (data)
+                // Empty string is valid input and should be processed
+                const response = data.trim();
+                void cleanupAndResolve(response); // Mark promise as intentionally ignored
               } catch (readError) {
                 logger.error('Error reading response file:', readError);
                 void cleanupAndResolve(''); // Cleanup on read error
@@ -207,6 +211,9 @@ export async function getCmdWindowInput(
             })();
           }
         });
+
+        // Wait briefly for the watcher to be fully set up and for potential heartbeat file creation
+        await new Promise((res) => setTimeout(res, 1000)); // Increased from 500ms to 1000ms
 
         // Start heartbeat check interval
         heartbeatInterval = setInterval(() => {
@@ -224,6 +231,11 @@ export async function getCmdWindowInput(
                 void cleanupAndResolve(''); // Mark promise as intentionally ignored
               } else {
                 heartbeatFileSeen = true; // Mark that we've seen the file
+                logger.debug('Heartbeat file active', {
+                  sessionId,
+                  lastModified: stats.mtime.getTime(),
+                  age: now - stats.mtime.getTime(),
+                });
               }
             } catch (err: unknown) {
               // Type err as unknown
@@ -238,12 +250,18 @@ export async function getCmdWindowInput(
                       `Heartbeat file ${heartbeatFilePath} not found after being seen. Process likely exited.`, // Added logger info
                     );
                     void cleanupAndResolve(''); // Mark promise as intentionally ignored
-                  } else if (Date.now() - startTime > 7000) {
-                    // File never appeared and initial grace period (7s) passed, assume dead
+                  } else if (Date.now() - startTime > 10000) {
+                    // Increased grace period from 7s to 10s
+                    // File never appeared and initial grace period passed, assume dead
                     logger.info(
-                      `Heartbeat file ${heartbeatFilePath} never appeared. Process likely failed to start.`, // Added logger info
+                      `Heartbeat file ${heartbeatFilePath} never appeared after 10s. Process likely failed to start.`, // Added logger info
                     );
                     void cleanupAndResolve(''); // Mark promise as intentionally ignored
+                  } else {
+                    logger.debug('Heartbeat file not yet created', {
+                      sessionId,
+                      waitTime: Date.now() - startTime,
+                    });
                   }
                   // Otherwise, file just hasn't appeared yet, wait longer
                 } else {
