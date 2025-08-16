@@ -70,8 +70,11 @@ const readOptionsFromFile = async (): Promise<CmdOptions> => {
     } as CmdOptions;
   } catch (error) {
     logger.error(
-      `Failed to read or parse options file ${optionsFilePath}:`,
-      error instanceof Error ? error.message : error,
+      {
+        optionsFilePath,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      `Failed to read or parse options file ${optionsFilePath}`,
     );
     // Re-throw to ensure the calling code knows initialization failed
     throw error;
@@ -100,7 +103,7 @@ async function initialize() {
           // Write empty string to indicate abnormal exit (e.g., Ctrl+C)
           writeResponseToFile(options.outputFile, '')
             .catch((error) => {
-              logger.error('Failed to write exit file:', error);
+              logger.error({ error }, 'Failed to write exit file');
             })
             .finally(() => process.exit(0)); // Exit gracefully after attempting write
         } else {
@@ -114,7 +117,7 @@ async function initialize() {
       exitHandlerAttached = true;
     }
   } catch (error) {
-    logger.error('Initialization failed:', error);
+    logger.error({ error }, 'Initialization failed');
     process.exit(1); // Exit if initialization fails
   }
 }

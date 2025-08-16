@@ -94,7 +94,8 @@ export async function getCmdWindowInput(
 
           // Construct the command string directly for the shell. Quotes handle paths with spaces.
           // Pass only the sessionId
-          const nodeCommand = `exec node "${escapedScriptPath}" "${escapedSessionId}" "${tempDir}"; exit 0`;
+          const nodeBin = process.execPath;
+          const nodeCommand = `exec "${nodeBin}" "${escapedScriptPath}" "${escapedSessionId}" "${tempDir}"; exit 0`;
 
           // Escape the node command for osascript's AppleScript string:
           const escapedNodeCommand = nodeCommand
@@ -105,15 +106,45 @@ export async function getCmdWindowInput(
           const command = `osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "${escapedNodeCommand}"'`;
           const commandArgs: string[] = [];
 
+          // Fallback launcher using .command + open -a Terminal (handles Automation issues)
+          const launchViaOpenCommand = async () => {
+            try {
+              const launcherPath = path.join(
+                tempDir,
+                `interactive-mcp-launch-${sessionId}.command`,
+              );
+              const scriptContent = `#!/bin/bash\nexec "${nodeBin}" "${escapedScriptPath}" "${escapedSessionId}" "${tempDir}"\n`;
+              await fsPromises.writeFile(launcherPath, scriptContent, 'utf8');
+              await fsPromises.chmod(launcherPath, 0o755);
+              const openProc = spawn('open', ['-a', 'Terminal', launcherPath], {
+                stdio: ['ignore', 'ignore', 'ignore'],
+                detached: true,
+              });
+              openProc.unref();
+            } catch (e) {
+              logger.error({ error: e }, 'Fallback open -a Terminal failed');
+            }
+          };
+
           ui = spawn(command, commandArgs, {
             stdio: ['ignore', 'ignore', 'ignore'],
             shell: true,
             detached: true,
           });
+
+          // If AppleScript fails or exits non-zero, fallback to open -a Terminal
+          ui.on('error', () => {
+            void launchViaOpenCommand();
+          });
+          ui.on('close', (code: number | null) => {
+            if (code !== null && code !== 0) {
+              void launchViaOpenCommand();
+            }
+          });
         } else if (platform === 'win32') {
           // Windows
           // Pass only the sessionId
-          ui = spawn('node', [uiScriptPath, sessionId], {
+          ui = spawn(process.execPath, [uiScriptPath, sessionId], {
             stdio: ['ignore', 'ignore', 'ignore'],
             shell: true,
             detached: true,
@@ -122,7 +153,7 @@ export async function getCmdWindowInput(
         } else {
           // Linux or other
           // Pass only the sessionId
-          ui = spawn('node', [uiScriptPath, sessionId], {
+          ui = spawn(process.execPath, [uiScriptPath, sessionId], {
             stdio: ['ignore', 'ignore', 'ignore'],
             shell: true,
             detached: true,
@@ -201,8 +232,8 @@ export async function getCmdWindowInput(
                   void cleanupAndResolve(response); // Mark promise as intentionally ignored
                 }
               } catch (readError) {
-                logger.error('Error reading response file:', readError);
-                void cleanupAndResolve(''); // Cleanup on read error
+                logger.error({ err: readError }, 'Error reading response file');
+                void cleanupAndResolve('');
               }
             })();
           }
@@ -238,23 +269,26 @@ export async function getCmdWindowInput(
                       `Heartbeat file ${heartbeatFilePath} not found after being seen. Process likely exited.`, // Added logger info
                     );
                     void cleanupAndResolve(''); // Mark promise as intentionally ignored
-                  } else if (Date.now() - startTime > 7000) {
-                    // File never appeared and initial grace period (7s) passed, assume dead
+                  } else if (Date.now() - startTime > 60000) {
+                    // File never appeared and extended grace period (60s) passed, assume dead
                     logger.info(
-                      `Heartbeat file ${heartbeatFilePath} never appeared. Process likely failed to start.`, // Added logger info
+                      `Heartbeat file ${heartbeatFilePath} never appeared within 60s. Process likely failed to start or was blocked by permissions.`,
                     );
-                    void cleanupAndResolve(''); // Mark promise as intentionally ignored
+                    void cleanupAndResolve('');
                   }
                   // Otherwise, file just hasn't appeared yet, wait longer
                 } else {
                   // Removed check for !== 'ENOENT' as it's implied
                   // Log other errors and resolve
-                  logger.error('Heartbeat check error:', error);
-                  void cleanupAndResolve(''); // Resolve immediately on other errors? Marked promise as intentionally ignored
+                  logger.error({ error }, 'Heartbeat check error');
+                  void cleanupAndResolve('');
                 }
               } else {
                 // Handle cases where err is not an object with a code property
-                logger.error('Unexpected heartbeat check error:', err);
+                logger.error(
+                  { error: err },
+                  'Unexpected heartbeat check error',
+                );
                 void cleanupAndResolve(''); // Mark promise as intentionally ignored
               }
             }
@@ -272,7 +306,7 @@ export async function getCmdWindowInput(
           timeoutSeconds * 1000 + 5000,
         ); // Add a bit more buffer
       } catch (setupError) {
-        logger.error('Error during cmd-input setup:', setupError);
+        logger.error({ error: setupError }, 'Error during cmd-input setup');
         // Ensure cleanup happens even if setup fails
         // Pass optionsFilePath to cleanupResources
         await cleanupResources(
