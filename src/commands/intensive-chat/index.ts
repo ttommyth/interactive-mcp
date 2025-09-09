@@ -86,7 +86,8 @@ export async function startIntensiveChatSession(
     const escapedPayload = payload; // Keep original payload, rely on quotes below
 
     // Construct the command string directly for the shell. Quotes handle paths with spaces.
-    const nodeCommand = `exec node "${escapedScriptPath}" "${escapedPayload}"; exit 0`;
+    const nodeBin = process.execPath;
+    const nodeCommand = `exec "${nodeBin}" "${escapedScriptPath}" "${escapedPayload}"; exit 0`;
 
     // Escape the node command for osascript's AppleScript string:
     // 1. Escape existing backslashes (\ -> \\)
@@ -101,14 +102,46 @@ export async function startIntensiveChatSession(
     const command = `osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "${escapedNodeCommand}"'`;
     const commandArgs: string[] = []; // No args needed when command is a single string for shell
 
+    // Fallback launcher using .command + open -a Terminal
+    const launchViaOpenCommand = async () => {
+      try {
+        const launcherPath = path.join(
+          sessionDir,
+          `interactive-mcp-intchat-${sessionId}.command`,
+        );
+        const scriptContent = `#!/bin/bash\nexec "${process.execPath}" "${escapedScriptPath}" "${escapedPayload}"\n`;
+        await fs.writeFile(launcherPath, scriptContent, 'utf8');
+        await fs.chmod(launcherPath, 0o755);
+        const openProc = spawn('open', ['-a', 'Terminal', launcherPath], {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          detached: true,
+        });
+        openProc.unref();
+      } catch (e) {
+        logger.error(
+          { error: e },
+          'Fallback open -a Terminal failed (intensive chat)',
+        );
+      }
+    };
+
     childProcess = spawn(command, commandArgs, {
       stdio: ['ignore', 'ignore', 'ignore'],
       shell: true,
       detached: true,
     });
+
+    childProcess.on('error', () => {
+      void launchViaOpenCommand();
+    });
+    childProcess.on('close', (code: number | null) => {
+      if (code !== null && code !== 0) {
+        void launchViaOpenCommand();
+      }
+    });
   } else if (platform === 'win32') {
     // Windows
-    childProcess = spawn('node', [uiScriptPath, payload], {
+    childProcess = spawn(process.execPath, [uiScriptPath, payload], {
       stdio: ['ignore', 'ignore', 'ignore'],
       shell: true,
       detached: true,
@@ -116,7 +149,7 @@ export async function startIntensiveChatSession(
     });
   } else {
     // Linux or other - use original method (might not pop up window)
-    childProcess = spawn('node', [uiScriptPath, payload], {
+    childProcess = spawn(process.execPath, [uiScriptPath, payload], {
       stdio: ['ignore', 'ignore', 'ignore'],
       shell: true,
       detached: true,
@@ -323,8 +356,8 @@ export async function isSessionActive(sessionId: string): Promise<boolean> {
     }
     // Handle cases where err is not an object with a code property or other errors
     logger.error(
-      `Error checking heartbeat for session ${sessionId}:`,
-      err instanceof Error ? err.message : String(err),
+      { sessionId, error: err instanceof Error ? err.message : String(err) },
+      `Error checking heartbeat for session ${sessionId}`,
     );
     session.isActive = false;
     return false;

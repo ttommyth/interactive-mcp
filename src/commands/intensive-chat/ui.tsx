@@ -32,7 +32,10 @@ const parseArgs = () => {
       const parsed = JSON.parse(decoded);
       return { ...defaults, ...parsed };
     } catch (e) {
-      logger.error('Invalid input options payload, using defaults.', e);
+      logger.error(
+        { error: e },
+        'Invalid input options payload, using defaults.',
+      );
     }
   }
   return defaults;
@@ -70,8 +73,8 @@ const updateHeartbeat = async () => {
   } catch (writeError) {
     // Log the specific error but allow the poll cycle to continue
     logger.error(
-      `Failed to write heartbeat file ${heartbeatPath}:`,
-      writeError,
+      { heartbeatPath, error: writeError },
+      `Failed to write heartbeat file ${heartbeatPath}`,
     );
   }
 };
@@ -83,7 +86,7 @@ const handleExit = () => {
     fs.writeFile(path.join(options.outputDir, 'session-closed.txt'), '', 'utf8')
       .then(() => process.exit(0))
       .catch((error) => {
-        logger.error('Failed to write exit file:', error);
+        logger.error({ error }, 'Failed to write exit file');
         process.exit(1);
       });
   } else {
@@ -169,8 +172,8 @@ const App: FC<AppProps> = ({ sessionId, title, outputDir, timeoutSeconds }) => {
               }
             } catch (parseError) {
               logger.error(
-                `Error parsing ${sessionId}.json as JSON:`,
-                parseError,
+                { file: `${sessionId}.json`, error: parseError },
+                `Error parsing ${sessionId}.json as JSON`,
               );
             }
 
@@ -196,8 +199,8 @@ const App: FC<AppProps> = ({ sessionId, title, outputDir, timeoutSeconds }) => {
             (e as { code: unknown }).code !== 'ENOENT'
           ) {
             logger.error(
-              `Error checking/reading input file ${inputFilePath}:`,
-              e,
+              { inputFilePath, error: e },
+              `Error checking/reading input file ${inputFilePath}`,
             );
           }
           // If it's not an error with a code or the code is ENOENT, we ignore it silently.
@@ -213,7 +216,7 @@ const App: FC<AppProps> = ({ sessionId, title, outputDir, timeoutSeconds }) => {
           // No close request
         }
       } catch (error) {
-        logger.error('Error in poll cycle:', error);
+        logger.error({ error }, 'Error in poll cycle');
       }
     }, 100);
 
