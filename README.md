@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ttommyth-interactive-mcp-badge.png)](https://mseep.ai/app/ttommyth-interactive-mcp)
+
 # interactive-mcp
 
 [![npm version](https://img.shields.io/npm/v/interactive-mcp)](https://www.npmjs.com/package/interactive-mcp) [![npm downloads](https://img.shields.io/npm/dm/interactive-mcp)](https://www.npmjs.com/package/interactive-mcp) [![smithery badge](https://smithery.ai/badge/@ttommyth/interactive-mcp)](https://smithery.ai/server/@ttommyth/interactive-mcp) [![GitHub license](https://img.shields.io/github/license/ttommyth/interactive-mcp)](https://github.com/ttommyth/interactive-mcp/blob/main/LICENSE) [![code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?style=flat-square)](https://github.com/prettier/prettier) [![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/ttommyth/interactive-mcp) [![GitHub last commit](https://img.shields.io/github/last-commit/ttommyth/interactive-mcp)](https://github.com/ttommyth/interactive-mcp/commits/main)
