@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@modelcontextprotocol/sdk": "^1.22.0",
     "@types/yargs": "^17.0.33",
     "ink": "^5.2.0",
     "node-notifier": "^10.0.1",
