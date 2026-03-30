@@ -42,6 +42,10 @@ Here are demonstrations of the interactive features:
 | :------------------------------------------------------------------: | :--------------------------------------------------------------: |
 | ![Start Intensive Chat Demo](./docs/assets/start-intensive-chat.gif) | ![End Intensive Chat Demo](./docs/assets/end-intensive-chat.gif) |
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/ttommyth-interactive-mcp).
+
 ## Usage Scenarios
 
 This server is ideal for scenarios where an LLM needs to interact directly with the user on their local machine, such as:
