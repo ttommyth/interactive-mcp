@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc --outDir dist && tsc-alias",
     "start": "node dist/index.js",
+    "test": "pnpm build && node --test tests",
     "lint": "eslint \"src/**/*.{js,ts,jsx,tsx}\"",
     "format": "prettier --write \"src/**/*.{js,ts,jsx,tsx,json,md}\"",
     "check-types": "tsc --noEmit",
