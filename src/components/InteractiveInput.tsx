@@ -40,17 +40,9 @@ export const InteractiveInput: FC<InteractiveInputProps> = ({
       }
     }
 
-    if (key.return) {
-      if (mode === 'option' && predefinedOptions.length > 0) {
-        onSubmit(questionId, predefinedOptions[selectedIndex]);
-      } else {
-        onSubmit(questionId, inputValue);
-      }
-      return;
-    }
-
     // Any other key press switches to input mode
     if (
+      !key.return &&
       !key.ctrl &&
       !key.meta &&
       !key.escape &&
@@ -83,12 +75,11 @@ export const InteractiveInput: FC<InteractiveInputProps> = ({
   };
 
   const handleSubmit = (value: string) => {
-    // The primary submit logic is now handled in useInput via Enter key
-    // This might still be called by TextInput's internal onSubmit, ensure consistency
+    // TextInput owns Enter so each answer is submitted only once.
     if (mode === 'option' && predefinedOptions.length > 0) {
       onSubmit(questionId, predefinedOptions[selectedIndex]);
     } else {
-      onSubmit(questionId, value); // Use the value from TextInput in case it triggered submit
+      onSubmit(questionId, value);
     }
   };
 
